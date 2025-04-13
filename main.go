@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -20,7 +21,8 @@ func init() {
 		log.Fatalf("Error connecting to MongoDB: %v", err)
 	}
 	println("----->>>    CONECTADO A LA BASE DE DATOS    <<<-----")
-	println("...")
+	println(".............................................................................................")
+	println(".............................................................................................")
 }
 
 func main() {
@@ -32,6 +34,8 @@ func main() {
 	})
 
 	router.GET("/movies", getMovies)
+	router.GET("/movies/:id", getMovieByID)
+	router.POST("/movies/aggregate", aggregateMovies)
 
 	router.Run()
 }
@@ -68,4 +72,70 @@ func getMovies(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, movies)
+}
+
+func aggregateMovies(c *gin.Context) {
+	var pipeline interface{}
+
+	if err := c.ShouldBindJSON(&pipeline); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON" + err.Error()})
+		return
+	}
+
+	cursor, err := mongoClient.Database("oscarMovies").Collection("movies").Aggregate(context.TODO(), pipeline)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener las películas " + err.Error()})
+		return
+	}
+
+	var results []bson.M
+
+	if err = cursor.All(context.TODO(), &results); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al leer las películas " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, results)
+}
+
+func getMovieByID(c *gin.Context) {
+	idMovieStr := c.Param("id")
+	id, err := primitive.ObjectIDFromHex(idMovieStr)
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format" + err.Error()})
+		return
+	}
+
+	var movie bson.M
+
+	err = mongoClient.Database("oscarMovies").Collection("movies").FindOne(context.TODO(), bson.D{{"_id", id}}).Decode(&movie)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Movie not found" + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, movie)
+}
+
+func addBook(c *gin.Context) {
+	var pipeline interface{}
+
+	if err := c.ShouldBindJSON(&pipeline); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON" + err.Error()})
+		return
+	}
+
+	result, err := mongoClient.Database("oscarMovies").Collection("movies").InsertOne(context.TODO(), pipeline)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al agregar la película " + err.Error()})
+		return
+	}
+
+	insertedID := result.InsertedID
+
+	c.JSON(http.StatusOK, gin.H{"message": "Movie added successfully", "inserted_id": insertedID})
 }
